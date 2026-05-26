@@ -38,12 +38,28 @@ DIGEST_TOP_N = 10
 REQUEST_TIMEOUT = 30
 
 # Realistic browser headers (some sites block default Python user agents)
+# Expanded to look more like a real Chrome browser on Windows. Sites with
+# bot detection often check Sec-Fetch-* and Accept-Encoding in addition
+# to User-Agent.
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                   "AppleWebKit/537.36 (KHTML, like Gecko) "
                   "Chrome/120.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-GB,en;q=0.9",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,"
+              "image/avif,image/webp,image/apng,*/*;q=0.8,"
+              "application/signed-exchange;v=b3;q=0.7",
+    "Accept-Language": "en-GB,en;q=0.9,en-US;q=0.8",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
+    "Sec-Ch-Ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"Windows"',
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
 }
 
 # Email config from environment variables (set in GitHub Secrets)
@@ -118,13 +134,17 @@ def scrape_source(source):
         return []
 
     jobs = []
+    # Per-source delay; some sites (e.g. Guardian Jobs / Madgex) seem to
+    # rate-limit or block when requests come too quickly. Default 1s; the
+    # source can override via "delay" key in sources.py.
+    delay = source.get("delay", 1)
     for url in source.get("urls", []):
         print(f"  Fetching {source['name']}")
         content = fetch(url)
         if content:
             parsed = parser_fn(content, source)
             jobs.extend(parsed)
-        time.sleep(1)  # polite delay between requests
+        time.sleep(delay)
 
     # Dedupe by URL within source
     seen_urls = set()

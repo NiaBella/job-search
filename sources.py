@@ -154,6 +154,8 @@ SOURCES = [
     # Guardian Jobs is powered by Madgex software. Category URLs return ~20
     # listings each. We target categories most relevant to digital content
     # /accessibility/policy work.
+    # delay=5 because Guardian started returning 403 to rapid requests on
+    # 26 May 2026 - slowing down to look more like a real user.
     {
         "name": "Guardian Jobs - Charities",
         "parser": "guardianjobs_html",
@@ -161,6 +163,7 @@ SOURCES = [
             "https://jobs.theguardian.com/jobs/charities/",
         ],
         "sector": "charity",
+        "delay": 5,
         "enabled": True,
     },
     {
@@ -170,6 +173,7 @@ SOURCES = [
             "https://jobs.theguardian.com/jobs/marketing-and-pr/",
         ],
         "sector": "charity",  # Most charity/public sector marketing roles
+        "delay": 5,
         "enabled": True,
     },
     {
@@ -179,6 +183,7 @@ SOURCES = [
             "https://jobs.theguardian.com/jobs/media/",
         ],
         "sector": "charity",
+        "delay": 5,
         "enabled": True,
     },
     {
@@ -188,6 +193,7 @@ SOURCES = [
             "https://jobs.theguardian.com/jobs/government-and-politics/",
         ],
         "sector": "civil_service",
+        "delay": 5,
         "enabled": True,
     },
     {
@@ -197,6 +203,7 @@ SOURCES = [
             "https://jobs.theguardian.com/jobs/homeworking/",
         ],
         "sector": "charity",  # Guardian Jobs leans heavily charity
+        "delay": 5,
         "enabled": True,
     },
     {
@@ -206,6 +213,7 @@ SOURCES = [
             "https://jobs.theguardian.com/jobs/wales/",
         ],
         "sector": "charity",
+        "delay": 5,
         "enabled": True,
     },
 
