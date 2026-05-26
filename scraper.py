@@ -61,6 +61,7 @@ PAGES_URL = os.environ.get("PAGES_URL", "")
 # Maps the 'parser' field in sources.py to the actual function
 PARSER_REGISTRY = {
     "jobsacuk_rss": parsers.parse_jobsacuk_rss,
+    "charityjob_html": parsers.parse_charityjob_html,
     # Future parsers added here as we build them
 }
 

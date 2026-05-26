@@ -135,3 +135,98 @@ def _infer_location_from_employer(employer):
 # For now I'm only implementing jobs.ac.uk - other sources stay
 # disabled until I write proper parsers for them.
 # ============================================================
+
+
+# ============================================================
+# CharityJob.co.uk - HTML parser
+# ============================================================
+def parse_charityjob_html(content, source_meta):
+    """
+    CharityJob.co.uk job listing pages.
+
+    Real job listings match URL pattern:
+        /jobs/{org-slug}/{job-slug}/{numeric-id}?tsId=N
+    
+    We anchor on those links and then look up to find the parent
+    container, then look around it for org name, location, salary.
+    """
+    jobs = []
+    if not content:
+        return jobs
+
+    try:
+        soup = BeautifulSoup(content, "html.parser")
+
+        # Find all links matching the job-URL pattern
+        # Pattern: /jobs/SOMETHING/SOMETHING/DIGITS
+        job_link_pattern = re.compile(r"/jobs/[^/]+/[^/]+/\d+(?:\?|$)")
+
+        seen_urls = set()
+        for link in soup.find_all("a", href=True):
+            href = link["href"]
+            if not job_link_pattern.search(href):
+                continue
+
+            # Get title first - skip links that are image-only wrappers
+            title = link.get_text(strip=True)
+            if not title or len(title) < 4:
+                continue
+
+            # Normalise URL and dedup
+            if href.startswith("/"):
+                href = "https://www.charityjob.co.uk" + href
+            href_clean = href.split("?")[0]
+            if href_clean in seen_urls:
+                continue
+            seen_urls.add(href_clean)
+
+            # Walk up to find a parent container with location/salary info
+            # CharityJob structures vary - look in nearby ancestors
+            container = link
+            for _ in range(6):  # up to 6 levels
+                container = container.parent
+                if container is None:
+                    break
+                txt = container.get_text(" ", strip=True)
+                # Detect a real job container by looking for these signals
+                if ("Remote" in txt or "Hybrid" in txt or "On-site" in txt
+                        or "per year" in txt or "per annum" in txt
+                        or "Posted" in txt):
+                    break
+
+            container_text = ""
+            org_name = ""
+            location_text = ""
+
+            if container is not None:
+                container_text = container.get_text(" | ", strip=True)[:600]
+
+                # Org name: usually the link immediately before the title link
+                # or the alt text of a logo image
+                logo = container.find("img", alt=True)
+                if logo and logo.get("alt"):
+                    org_name = logo["alt"].replace(" logo", "").strip()
+
+                # Location detection - look for these strings
+                lower = container_text.lower()
+                if "remote" in lower:
+                    location_text = "Remote"
+                elif "hybrid" in lower:
+                    location_text = "Hybrid"
+                elif "on-site" in lower or "on site" in lower:
+                    location_text = "On-site"
+
+            jobs.append({
+                "title": title,
+                "url": href_clean,
+                "description": container_text,
+                "location": location_text,
+                "source": source_meta["name"],
+                "sector": source_meta["sector"],
+                "posted": "",
+                "employer": org_name,
+            })
+    except Exception as e:
+        print(f"  ! charityjob parse error: {e}")
+
+    return jobs

@@ -88,6 +88,26 @@ SOURCES = [
         "enabled": True,
     },
 
+    # ---------- CharityJob.co.uk - charity sector roles ----------
+    {
+        "name": "CharityJob - Remote",
+        "parser": "charityjob_html",
+        "urls": [
+            "https://www.charityjob.co.uk/jobs?workplace=remote",
+        ],
+        "sector": "charity",
+        "enabled": True,
+    },
+    {
+        "name": "CharityJob - Hybrid",
+        "parser": "charityjob_html",
+        "urls": [
+            "https://www.charityjob.co.uk/jobs?workplace=hybrid",
+        ],
+        "sector": "charity",
+        "enabled": True,
+    },
+
     # ---------- DISABLED until proper parsers are written ----------
     {
         "name": "NHS Jobs",
