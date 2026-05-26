@@ -89,14 +89,17 @@ SOURCES = [
     },
 
     # ---------- CharityJob.co.uk - all charity sector roles ----------
-    # Single feed of all jobs sorted by newest; keyword + location filters
-    # in filters.py do the narrowing. User filters out unwanted causes
-    # (animal farming, religious, right-wing political) by eye in the email.
+    # Three pages of newest-first jobs (~25 per page = ~75 total).
+    # Keyword + location filters in filters.py do the narrowing. User
+    # filters out unwanted causes (animal farming, religious, right-wing
+    # political) by eye in the email.
     {
         "name": "CharityJob - All",
         "parser": "charityjob_html",
         "urls": [
             "https://www.charityjob.co.uk/jobs",
+            "https://www.charityjob.co.uk/jobs?page=2",
+            "https://www.charityjob.co.uk/jobs?page=3",
         ],
         "sector": "charity",
         "enabled": True,
