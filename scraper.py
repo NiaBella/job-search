@@ -62,6 +62,7 @@ PAGES_URL = os.environ.get("PAGES_URL", "")
 PARSER_REGISTRY = {
     "jobsacuk_rss": parsers.parse_jobsacuk_rss,
     "charityjob_html": parsers.parse_charityjob_html,
+    "guardianjobs_html": parsers.parse_guardianjobs_html,
     # Future parsers added here as we build them
 }
 

@@ -230,3 +230,83 @@ def parse_charityjob_html(content, source_meta):
         print(f"  ! charityjob parse error: {e}")
 
     return jobs
+
+
+# ============================================================
+# Guardian Jobs (Madgex platform) - HTML parser
+# ============================================================
+def parse_guardianjobs_html(content, source_meta):
+    """
+    Guardian Jobs uses Madgex software. Each listing is a <li class="lister__item">
+    with predictable child classes:
+        - h3.lister__header > a       -> title and URL
+        - li.lister__meta-item--location -> location
+        - li.lister__meta-item--salary   -> salary
+        - li.lister__meta-item--recruiter -> employer/recruiter
+        - p.lister__description       -> short description
+
+    Many Madgex-powered sites share this structure, so this parser may
+    be reusable for other Madgex boards too.
+    """
+    jobs = []
+    if not content:
+        return jobs
+
+    try:
+        soup = BeautifulSoup(content, "html.parser")
+
+        # Each listing is an <li class="lister__item">
+        items = soup.find_all("li", class_="lister__item")
+
+        for item in items:
+            # Title and URL
+            header = item.find("h3", class_="lister__header")
+            if not header:
+                continue
+            link = header.find("a", href=True)
+            if not link:
+                continue
+            title = link.get_text(strip=True)
+            href = link["href"].strip()
+            if not title or not href:
+                continue
+
+            # Normalise URL - Guardian uses relative paths
+            if href.startswith("/"):
+                href = "https://jobs.theguardian.com" + href
+            # Strip tracking query string for clean dedup key
+            href_clean = href.split("?")[0]
+
+            # Location
+            loc_el = item.find("li", class_="lister__meta-item--location")
+            location = loc_el.get_text(strip=True) if loc_el else ""
+
+            # Salary
+            sal_el = item.find("li", class_="lister__meta-item--salary")
+            salary = sal_el.get_text(strip=True) if sal_el else ""
+
+            # Employer/recruiter
+            rec_el = item.find("li", class_="lister__meta-item--recruiter")
+            employer = rec_el.get_text(strip=True) if rec_el else ""
+
+            # Description blurb
+            desc_el = item.find("p", class_="lister__description")
+            description = desc_el.get_text(strip=True) if desc_el else ""
+
+            # Build a richer description for filter matching
+            full_description = f"{employer} | {salary} | {description}"
+
+            jobs.append({
+                "title": title,
+                "url": href_clean,
+                "description": full_description[:1000],
+                "location": location,
+                "source": source_meta["name"],
+                "sector": source_meta["sector"],
+                "posted": "",
+                "employer": employer,
+            })
+    except Exception as e:
+        print(f"  ! Guardian Jobs parse error: {e}")
+
+    return jobs
