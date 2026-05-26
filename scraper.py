@@ -3,10 +3,10 @@ Main job scraper.
 
 Workflow:
 1. Load list of jobs we've already seen (seen_jobs.json)
-2. For each source: fetch, parse, normalise into a common format
+2. For each enabled source: fetch its URLs, parse via source-specific parser
 3. Apply filters (filters.py)
 4. Score and rank
-5. Compare against seen_jobs.json — anything new gets reported
+5. Compare against seen_jobs.json - anything new gets reported
 6. Send email digest (top 10) and write HTML page (all)
 7. Update seen_jobs.json
 """
@@ -21,14 +21,12 @@ import hashlib
 from datetime import datetime, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from urllib.parse import quote_plus, urljoin
 
-import feedparser
 import requests
-from bs4 import BeautifulSoup
 
-from sources import SOURCES, SECTOR_WEIGHTS, SEARCH_KEYWORDS
+from sources import SOURCES, SECTOR_WEIGHTS
 from filters import passes_filters, score
+import parsers
 
 
 # ============================================================
@@ -54,7 +52,17 @@ SMTP_PORT = 465
 EMAIL_FROM = os.environ.get("EMAIL_FROM", "")
 EMAIL_TO = os.environ.get("EMAIL_TO", "")
 EMAIL_APP_PASSWORD = os.environ.get("EMAIL_APP_PASSWORD", "")
-PAGES_URL = os.environ.get("PAGES_URL", "")  # e.g. https://niabella.github.io/job-search
+PAGES_URL = os.environ.get("PAGES_URL", "")
+
+
+# ============================================================
+# PARSER REGISTRY
+# ============================================================
+# Maps the 'parser' field in sources.py to the actual function
+PARSER_REGISTRY = {
+    "jobsacuk_rss": parsers.parse_jobsacuk_rss,
+    # Future parsers added here as we build them
+}
 
 
 # ============================================================
@@ -82,7 +90,7 @@ def save_seen(seen_set):
 
 
 # ============================================================
-# FETCHERS
+# FETCH
 # ============================================================
 def fetch(url):
     """Fetch a URL with error handling."""
@@ -91,97 +99,8 @@ def fetch(url):
         r.raise_for_status()
         return r.text
     except Exception as e:
-        print(f"  ! fetch failed: {e}", file=sys.stderr)
+        print(f"  ! fetch failed for {url}: {e}", file=sys.stderr)
         return None
-
-
-def parse_rss(content, source):
-    """Parse RSS/Atom feed into a list of normalised jobs."""
-    jobs = []
-    try:
-        feed = feedparser.parse(content)
-        for entry in feed.entries:
-            jobs.append({
-                "title": entry.get("title", "").strip(),
-                "url": entry.get("link", "").strip(),
-                "description": (entry.get("summary", "") or entry.get("description", ""))[:1000],
-                "location": entry.get("location", ""),
-                "source": source["name"],
-                "sector": source["sector"],
-                "posted": entry.get("published", entry.get("updated", "")),
-            })
-    except Exception as e:
-        print(f"  ! parse_rss failed: {e}", file=sys.stderr)
-    return jobs
-
-
-def parse_html_generic(content, source, base_url):
-    """
-    Generic HTML parser. Looks for common job-listing patterns:
-    - <a> tags with 'job' in href or class
-    - <article> or <li> elements containing a heading + link
-    Returns a best-effort list. May miss things or capture noise.
-    """
-    jobs = []
-    if not content:
-        return jobs
-
-    try:
-        soup = BeautifulSoup(content, "html.parser")
-
-        # Strategy 1: look for elements that look like job listings
-        # Common patterns: class contains 'job', 'vacancy', 'result', 'listing'
-        candidates = soup.find_all(
-            ["article", "li", "div"],
-            class_=lambda c: c and any(
-                kw in " ".join(c if isinstance(c, list) else [c]).lower()
-                for kw in ["job", "vacancy", "result", "listing", "search-result"]
-            )
-        )
-
-        for candidate in candidates[:100]:  # cap to avoid runaway
-            # Find a link that looks like a job URL
-            link = candidate.find("a", href=True)
-            if not link:
-                continue
-            title = link.get_text(strip=True)
-            if not title or len(title) < 5 or len(title) > 200:
-                continue
-            href = urljoin(base_url, link["href"])
-
-            # Try to find location nearby
-            location = ""
-            loc_el = candidate.find(
-                ["span", "div", "p"],
-                class_=lambda c: c and "location" in (" ".join(c if isinstance(c, list) else [c])).lower()
-            )
-            if loc_el:
-                location = loc_el.get_text(strip=True)
-
-            description = candidate.get_text(" ", strip=True)[:1000]
-
-            jobs.append({
-                "title": title,
-                "url": href,
-                "description": description,
-                "location": location,
-                "source": source["name"],
-                "sector": source["sector"],
-                "posted": "",
-            })
-
-        # Dedupe within source (same URL twice)
-        seen_urls = set()
-        unique = []
-        for j in jobs:
-            if j["url"] not in seen_urls:
-                seen_urls.add(j["url"])
-                unique.append(j)
-        return unique
-
-    except Exception as e:
-        print(f"  ! parse_html_generic failed: {e}", file=sys.stderr)
-        return jobs
 
 
 def scrape_source(source):
@@ -189,33 +108,26 @@ def scrape_source(source):
     if not source.get("enabled", True):
         return []
 
+    parser_name = source.get("parser")
+    parser_fn = PARSER_REGISTRY.get(parser_name)
+    if not parser_fn:
+        print(f"  ! No parser registered for '{parser_name}' (source: {source['name']})")
+        return []
+
     jobs = []
-    if source.get("iterate_keywords"):
-        for kw in SEARCH_KEYWORDS:
-            url = source["url_template"].format(keyword=quote_plus(kw))
-            print(f"  Fetching {source['name']} ({kw})")
-            content = fetch(url)
-            if content:
-                if source["type"] == "rss":
-                    jobs.extend(parse_rss(content, source))
-                else:
-                    jobs.extend(parse_html_generic(content, source, url))
-            time.sleep(1)  # polite delay between requests
-    else:
-        url = source["url_template"]
+    for url in source.get("urls", []):
         print(f"  Fetching {source['name']}")
         content = fetch(url)
         if content:
-            if source["type"] == "rss":
-                jobs.extend(parse_rss(content, source))
-            else:
-                jobs.extend(parse_html_generic(content, source, url))
+            parsed = parser_fn(content, source)
+            jobs.extend(parsed)
+        time.sleep(1)  # polite delay between requests
 
     # Dedupe by URL within source
     seen_urls = set()
     unique = []
     for j in jobs:
-        if j["url"] and j["url"] not in seen_urls:
+        if j.get("url") and j["url"] not in seen_urls:
             seen_urls.add(j["url"])
             unique.append(j)
 
@@ -233,7 +145,7 @@ def build_email_html(new_jobs, all_jobs_today, pages_url):
 
     parts = [
         f"""<html><body style="font-family: Arial, sans-serif; max-width: 700px; margin: 0 auto; padding: 20px; color: #1a1a1a;">""",
-        f"<h1 style='font-size:20px;'>Job digest — {today}</h1>",
+        f"<h1 style='font-size:20px;'>Job digest - {today}</h1>",
         f"<p>Found <strong>{len(new_jobs)} new roles</strong> today (out of {len(all_jobs_today)} matching today).</p>",
     ]
 
@@ -247,12 +159,12 @@ def build_email_html(new_jobs, all_jobs_today, pages_url):
                 flag_html = " <span style='background:#fff3cd; padding:1px 6px; font-size:11px; border-radius:3px;'>check location</span>"
             parts.append(f"""
             <div style="border-bottom: 1px solid #eee; padding: 10px 0;">
-                <div><a href="{job['url']}" style="font-weight:bold; color:#1a4480; text-decoration:none;">{job['title']}</a>{flag_html}</div>
-                <div style="font-size:12px; color:#555;">{job.get('location','')} &middot; {job['source']}</div>
+                <div><a href="{job['url']}" style="font-weight:bold; color:#1a4480; text-decoration:none;">{_escape(job['title'])}</a>{flag_html}</div>
+                <div style="font-size:12px; color:#555;">{_escape(job.get('location',''))} &middot; {_escape(job['source'])}</div>
             </div>""")
 
         if len(new_jobs) > DIGEST_TOP_N:
-            parts.append(f"<p>And <strong>{len(new_jobs) - DIGEST_TOP_N} more</strong> — see the full list:</p>")
+            parts.append(f"<p>And <strong>{len(new_jobs) - DIGEST_TOP_N} more</strong> - see the full list:</p>")
 
     if pages_url:
         parts.append(f'<p><a href="{pages_url}" style="display:inline-block; background:#1a4480; color:white; padding:8px 16px; text-decoration:none; border-radius:4px;">View all results &rarr;</a></p>')
@@ -265,14 +177,14 @@ def build_email_html(new_jobs, all_jobs_today, pages_url):
 def send_email(new_jobs, all_jobs_today):
     """Send the digest email via Gmail SMTP."""
     if not (EMAIL_FROM and EMAIL_TO and EMAIL_APP_PASSWORD):
-        print("Email credentials not set — skipping email send.")
+        print("Email credentials not set - skipping email send.")
         return
 
     today = datetime.now(timezone.utc).strftime("%d %b %Y")
     if new_jobs:
-        subject = f"[Jobs] {len(new_jobs)} new roles — {today}"
+        subject = f"[Jobs] {len(new_jobs)} new roles - {today}"
     else:
-        subject = f"[Jobs] No new roles — {today}"
+        subject = f"[Jobs] No new roles - {today}"
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
@@ -303,8 +215,8 @@ def write_html_page(all_jobs_today):
         if job.get("_loc_status") == "include_flag":
             flag = '<span class="flag">check location</span>'
         rows.append(f"""
-        <tr data-sector="{job['sector']}" data-loc-status="{job.get('_loc_status','')}">
-            <td><a href="{job['url']}" target="_blank">{_escape(job['title'])}</a> {flag}</td>
+        <tr data-sector="{_escape(job['sector'])}" data-loc-status="{job.get('_loc_status','')}">
+            <td><a href="{_escape(job['url'])}" target="_blank">{_escape(job['title'])}</a> {flag}</td>
             <td>{_escape(job.get('location',''))}</td>
             <td>{_escape(job['source'])}</td>
             <td>{_escape(job.get('sector',''))}</td>
@@ -315,7 +227,7 @@ def write_html_page(all_jobs_today):
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Job results — {today}</title>
+<title>Job results - {today}</title>
 <style>
     body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
             max-width: 1100px; margin: 0 auto; padding: 20px; color: #1a1a1a; }}
@@ -334,7 +246,7 @@ def write_html_page(all_jobs_today):
 </head>
 <body>
 <h1>Job digest</h1>
-<div class="meta">Last updated: {today} — {len(all_jobs_today)} roles matching filters</div>
+<div class="meta">Last updated: {today} - {len(all_jobs_today)} roles matching filters</div>
 
 <div class="filters">
     <strong>Filter:</strong>
@@ -416,7 +328,7 @@ def main():
     for job in all_jobs:
         passes, info = passes_filters(job)
         if passes:
-            job["_loc_status"] = info  # 'include' or 'include_flag'
+            job["_loc_status"] = info
             kept.append(job)
 
     print(f"After filtering: {len(kept)}")
@@ -425,7 +337,6 @@ def main():
     by_id = {}
     for job in kept:
         jid = job_id(job)
-        # If we see the same job from two sources, keep the higher-weighted one
         if jid not in by_id or (
             SECTOR_WEIGHTS.get(job.get("sector"), 0) >
             SECTOR_WEIGHTS.get(by_id[jid].get("sector"), 0)
