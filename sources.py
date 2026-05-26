@@ -105,6 +105,51 @@ SOURCES = [
         "enabled": True,
     },
 
+    # ---------- DWP Find a Job - UK government's official board ----------
+    # Covers NHS, Civil Service, councils, and private sector. Used by
+    # DWP/JSA themselves. Targeted searches by keyword + location to
+    # keep volume manageable (the firehose is 175k+ jobs).
+    # NOTE: First deployment - parser built defensively against best-guess
+    # HTML structure. May need iteration after first run.
+    {
+        "name": "Find a Job - Digital/Content (local)",
+        "parser": "findajob_html",
+        "urls": [
+            "https://findajob.dwp.gov.uk/search?q=digital+content&w=Colwyn+Bay&r=30&sort=date",
+        ],
+        "sector": "unknown",
+        "enabled": True,
+    },
+    {
+        "name": "Find a Job - Accessibility (UK-wide)",
+        "parser": "findajob_html",
+        "urls": [
+            "https://findajob.dwp.gov.uk/search?q=accessibility&sort=date",
+            "https://findajob.dwp.gov.uk/search?q=WCAG&sort=date",
+        ],
+        "sector": "accessibility_specialist",
+        "enabled": True,
+    },
+    {
+        "name": "Find a Job - Communications (local)",
+        "parser": "findajob_html",
+        "urls": [
+            "https://findajob.dwp.gov.uk/search?q=communications&w=Colwyn+Bay&r=30&sort=date",
+        ],
+        "sector": "unknown",
+        "enabled": True,
+    },
+    {
+        "name": "Find a Job - Policy/Compliance (UK-wide)",
+        "parser": "findajob_html",
+        "urls": [
+            "https://findajob.dwp.gov.uk/search?q=policy+officer&sort=date",
+            "https://findajob.dwp.gov.uk/search?q=digital+compliance&sort=date",
+        ],
+        "sector": "unknown",
+        "enabled": True,
+    },
+
     # ---------- Guardian Jobs ----------
     # Guardian Jobs is powered by Madgex software. Category URLs return ~20
     # listings each. We target categories most relevant to digital content

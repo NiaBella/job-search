@@ -310,3 +310,141 @@ def parse_guardianjobs_html(content, source_meta):
         print(f"  ! Guardian Jobs parse error: {e}")
 
     return jobs
+
+
+# ============================================================
+# Find a Job (DWP) - HTML parser
+# ============================================================
+# Site uses GOV.UK Design System. Job adverts are at URLs like:
+#   /apply/{numeric-id}    or    /details/{numeric-id}
+# Search result cards typically wrap title, employer, location, salary,
+# date, and a short blurb. Built defensively because we couldn't verify
+# HTML structure from the sandbox before deployment.
+def parse_findajob_html(content, source_meta):
+    """Parse a Find a Job search results page.
+
+    Strategy:
+    1. Find all anchors pointing to /apply/{id} or /details/{id}
+    2. For each, walk UP to find the surrounding result card
+    3. Pull title (anchor text), employer + location + salary from
+       the card text, using regex fallbacks if no clean classes found
+    """
+    jobs = []
+    seen_urls = set()
+
+    try:
+        soup = BeautifulSoup(content, "html.parser")
+
+        # Find every link that looks like a job advert URL
+        # Find a Job has used both /apply/{id} and /details/{id} historically
+        job_links = soup.find_all(
+            "a",
+            href=re.compile(r"^/(apply|details)/\d+"),
+        )
+
+        for link in job_links:
+            href = link.get("href", "")
+            if not href:
+                continue
+
+            # Absolute URL
+            full_url = urljoin("https://findajob.dwp.gov.uk", href)
+
+            # Dedup by URL (search pages can repeat the same job)
+            if full_url in seen_urls:
+                continue
+
+            # Title: link text, cleaned
+            title = link.get_text(strip=True)
+            if not title or len(title) < 4:
+                # Probably a non-title link inside a card (e.g. "view")
+                continue
+
+            seen_urls.add(full_url)
+
+            # Walk up to find the surrounding result card. We try a few
+            # likely containers; if none match, just use the link's
+            # immediate parent.
+            container = (
+                link.find_parent("div", class_=re.compile(r"search-result|result"))
+                or link.find_parent("li")
+                or link.find_parent("article")
+                or link.find_parent("div")
+            )
+
+            employer = ""
+            location = ""
+            salary = ""
+            posted = ""
+            description = ""
+
+            if container:
+                # Get all text from the container, split into lines, strip
+                text_lines = [
+                    ln.strip()
+                    for ln in container.get_text("\n", strip=True).split("\n")
+                    if ln.strip()
+                ]
+
+                # GOV.UK pattern usually puts the title first, then a list
+                # of details. We skip the title (we already have it) and
+                # look at the remaining lines.
+                remaining = [ln for ln in text_lines if ln != title]
+
+                # Date posted: look for "DD Month YYYY" or "X days ago"
+                date_re = re.compile(
+                    r"^\d{1,2}\s+\w+\s+\d{4}$"  # 26 May 2026
+                    r"|^\d+\s+(day|week|hour|minute)s?\s+ago$",  # 3 days ago
+                    re.IGNORECASE,
+                )
+                # Salary: line containing £
+                salary_re = re.compile(r"£")
+                # Employer-location: usually "Employer Name - Location, POSTCODE"
+                # or just "Location, POSTCODE"
+                emp_loc_re = re.compile(r" - |, [A-Z]{1,2}\d")
+
+                for line in remaining:
+                    if not posted and date_re.match(line):
+                        posted = line
+                        continue
+                    if not salary and salary_re.search(line):
+                        salary = line
+                        continue
+                    if not employer and not location and emp_loc_re.search(line):
+                        # Split on " - " if present (employer - location)
+                        if " - " in line:
+                            parts = line.split(" - ", 1)
+                            employer = parts[0].strip()
+                            location = parts[1].strip()
+                        else:
+                            location = line
+                        continue
+                    # Anything else longer than 30 chars becomes part of
+                    # the description blurb
+                    if not description and len(line) > 30:
+                        description = line
+
+            # Build a richer description for the filter to match against
+            full_description = " | ".join(
+                p for p in (employer, salary, description) if p
+            )
+
+            jobs.append({
+                "title": title,
+                "url": full_url,
+                "description": full_description[:1000],
+                "location": location,
+                "source": source_meta["name"],
+                "sector": source_meta.get("sector", "unknown"),
+                "posted": posted,
+                "employer": employer,
+            })
+
+        # Debug aid: report what we found at parse time so we can see
+        # quickly from workflow logs if the parser fell over
+        print(f"  Find a Job: parsed {len(jobs)} jobs from {len(job_links)} links")
+
+    except Exception as e:
+        print(f"  ! Find a Job parse error: {e}")
+
+    return jobs
