@@ -18,6 +18,7 @@ the standard format:
     }
 """
 
+import html
 import re
 import xml.etree.ElementTree as ET
 from urllib.parse import urljoin
@@ -56,10 +57,13 @@ def parse_jobsacuk_rss(content, source_meta):
                 continue
 
             # Description format: "Employer - Department<br />Salary: ..."
-            # Extract just the employer for cleaner display
-            employer = ""
-            desc_text = re.sub(r"<br\s*/?>", " | ", description)
+            # Some feeds return literal <br /> tags, others HTML-entity-encoded
+            # (&lt;br /&gt;). Decode entities first, then strip tags.
+            desc_text = html.unescape(description)
+            desc_text = re.sub(r"<br\s*/?>", " | ", desc_text, flags=re.IGNORECASE)
             desc_text = re.sub(r"<[^>]+>", "", desc_text)  # strip any other HTML
+            desc_text = desc_text.strip()
+            employer = ""
             parts = desc_text.split(" | ", 1)
             if parts:
                 # Employer is everything before the first " - " in the first chunk
