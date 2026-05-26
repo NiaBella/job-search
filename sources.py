@@ -88,21 +88,15 @@ SOURCES = [
         "enabled": True,
     },
 
-    # ---------- CharityJob.co.uk - charity sector roles ----------
+    # ---------- CharityJob.co.uk - all charity sector roles ----------
+    # Single feed of all jobs sorted by newest; keyword + location filters
+    # in filters.py do the narrowing. User filters out unwanted causes
+    # (animal farming, religious, right-wing political) by eye in the email.
     {
-        "name": "CharityJob - Remote",
+        "name": "CharityJob - All",
         "parser": "charityjob_html",
         "urls": [
-            "https://www.charityjob.co.uk/jobs?workplace=remote",
-        ],
-        "sector": "charity",
-        "enabled": True,
-    },
-    {
-        "name": "CharityJob - Hybrid",
-        "parser": "charityjob_html",
-        "urls": [
-            "https://www.charityjob.co.uk/jobs?workplace=hybrid",
+            "https://www.charityjob.co.uk/jobs",
         ],
         "sector": "charity",
         "enabled": True,
