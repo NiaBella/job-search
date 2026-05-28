@@ -2,12 +2,13 @@ name: Daily job scrape
 
 on:
   schedule:
-    # Runs at 08:00 UK time. GitHub uses UTC, so:
-    # - 07:00 UTC = 08:00 BST (British Summer Time, late March - late Oct)
-    # - 08:00 UTC = 08:00 GMT (Greenwich Mean Time, rest of year)
-    # We run both to cover both - one will be silent in each season.
-    - cron: '0 7 * * *'   # 08:00 BST
-    - cron: '0 8 * * *'   # 08:00 GMT
+    # Single run targeting 03:00 UK time. GitHub uses UTC, so:
+    #   - 02:00 UTC = 03:00 BST in summer (correct)
+    #   - 02:00 UTC = 02:00 GMT in winter (one hour earlier)
+    # GitHub Actions free tier delays scheduled runs by 1-4 hours during
+    # high-load periods, so the actual run will arrive between ~3am and
+    # ~7am UK time - still well before Nia wakes.
+    - cron: '0 2 * * *'
   workflow_dispatch:  # allows manual triggering from the GitHub UI
 
 permissions:
